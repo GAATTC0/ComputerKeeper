@@ -16,6 +16,8 @@ IS_WINDOWS = sys.platform.startswith("win")
 
 # Windows 常量与 API
 if IS_WINDOWS:
+    import winreg
+
     ES_CONTINUOUS = 0x80000000
     ES_SYSTEM_REQUIRED = 0x00000001
     ES_DISPLAY_REQUIRED = 0x00000002
@@ -91,107 +93,173 @@ class MouseMover(QtWidgets.QWidget):
     def __init__(self):
         super(MouseMover, self).__init__()
 
+        # 打包后使用 EXE 所在目录；直接运行源码时使用脚本所在目录。
+        program_path = sys.executable if getattr(sys, "frozen", False) else __file__
+        self.settings_path = os.path.join(os.path.dirname(os.path.abspath(program_path)), "ComputerKeeper.ini")
+
         self.setWindowTitle("ComputerKeeper")
-        self.setGeometry(100, 100, 520, 440)
-        self.setWindowOpacity(0.88)  # 半透明
+        self.setObjectName("keeperWindow")
+        self.resize(600, 720)
+        self.setMinimumSize(560, 700)
+        self.setWindowIcon(QtGui.QIcon(resource_path("icon.png")))
+        self._apply_theme()
 
-        # 设置窗口图标
-        app_icon_path = resource_path("icon.png")
-        self.setWindowIcon(QtGui.QIcon(app_icon_path))
+        # 使用布局管理器统一间距，适应窗口缩放和不同系统字体。
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(16)
+        header = QtWidgets.QHBoxLayout()
+        title = QtWidgets.QLabel('ComputerKeeper', self)
+        title.setObjectName("title")
+        header.addWidget(title)
+        header.addStretch()
+        badge = QtWidgets.QLabel('DESKTOP ASSISTANT', self)
+        badge.setObjectName("badge")
+        header.addWidget(badge)
+        layout.addLayout(header)
 
-        row_y = 20
-        # 间隔时间
-        self.intervalLabel = QtWidgets.QLabel('间隔时间（秒）：', self)
-        self.intervalLabel.move(20, row_y)
+        # 开机自启独占首个设置区，不与触发参数混排。
+        startup_card, startup_layout = self._create_card()
+        self.startupCheck = QtWidgets.QCheckBox('开机自启', self)
+        self.startupCheck.setEnabled(IS_WINDOWS)
+        startup_layout.addWidget(self.startupCheck)
+        startup_hint = QtWidgets.QLabel('登录 Windows 后自动打开 · 点击保存后生效', self)
+        startup_hint.setObjectName("muted")
+        startup_layout.addWidget(startup_hint)
+        layout.addWidget(startup_card)
+
+        schedule_card, schedule_layout = self._create_card()
+        schedule_title = QtWidgets.QLabel('运行计划', self)
+        schedule_title.setObjectName("sectionTitle")
+        schedule_layout.addWidget(schedule_title)
+        schedule_grid = QtWidgets.QGridLayout()
+        schedule_grid.setHorizontalSpacing(16)
+        schedule_grid.setVerticalSpacing(12)
+        self.startLabel = QtWidgets.QLabel('开始时间', self)
+        self.endLabel = QtWidgets.QLabel('结束时间', self)
+        self.startTimeEdit = QtWidgets.QTimeEdit(self)
+        self.endTimeEdit = QtWidgets.QTimeEdit(self)
+        self.startTimeEdit.setTime(QtCore.QTime(9, 0))
+        self.endTimeEdit.setTime(QtCore.QTime(17, 55))
+        for editor in (self.startTimeEdit, self.endTimeEdit):
+            editor.setDisplayFormat("HH:mm")
+            editor.setMinimumHeight(38)
+        schedule_grid.addWidget(self.startLabel, 0, 0)
+        schedule_grid.addWidget(self.startTimeEdit, 0, 1)
+        schedule_grid.addWidget(self.endLabel, 0, 2)
+        schedule_grid.addWidget(self.endTimeEdit, 0, 3)
+        self.lunchLabel = QtWidgets.QLabel('午休时段', self)
+        self.lunchStartEdit = QtWidgets.QTimeEdit(self)
+        self.lunchEndEdit = QtWidgets.QTimeEdit(self)
+        self.lunchStartEdit.setTime(QtCore.QTime(12, 0))
+        self.lunchEndEdit.setTime(QtCore.QTime(13, 30))
+        for editor in (self.lunchStartEdit, self.lunchEndEdit):
+            editor.setDisplayFormat("HH:mm")
+            editor.setMinimumHeight(38)
+        self.lunchSepLabel = QtWidgets.QLabel('至', self)
+        self.lunchSepLabel.setAlignment(QtCore.Qt.AlignCenter)
+        schedule_grid.addWidget(self.lunchLabel, 1, 0)
+        schedule_grid.addWidget(self.lunchStartEdit, 1, 1)
+        schedule_grid.addWidget(self.lunchSepLabel, 1, 2)
+        schedule_grid.addWidget(self.lunchEndEdit, 1, 3)
+        schedule_grid.setColumnStretch(1, 1)
+        schedule_grid.setColumnStretch(3, 1)
+        schedule_layout.addLayout(schedule_grid)
+        days_layout = QtWidgets.QHBoxLayout()
+        days_layout.setSpacing(6)
+        self.dayChecks = []
+        for day, name in enumerate(("周一", "周二", "周三", "周四", "周五", "周六", "周日")):
+            checkbox = QtWidgets.QCheckBox(name, self)
+            checkbox.setObjectName("dayCheck")
+            checkbox.setChecked(day < 5)
+            days_layout.addWidget(checkbox, 1)
+            self.dayChecks.append(checkbox)
+        schedule_layout.addLayout(days_layout)
+        days_hint = QtWidgets.QLabel('全不选时仅当天有效；午休期间暂停执行。', self)
+        days_hint.setObjectName("muted")
+        schedule_layout.addWidget(days_hint)
+        layout.addWidget(schedule_card)
+
+        activity_card, activity_layout = self._create_card()
+        activity_title = QtWidgets.QLabel('触发设置', self)
+        activity_title.setObjectName("sectionTitle")
+        activity_layout.addWidget(activity_title)
+        activity_grid = QtWidgets.QGridLayout()
+        activity_grid.setHorizontalSpacing(12)
+        activity_grid.setVerticalSpacing(12)
+        self.intervalLabel = QtWidgets.QLabel('间隔时间（秒）', self)
         self.intervalLineEdit = QtWidgets.QLineEdit(self)
-        self.intervalLineEdit.setGeometry(150, row_y - 4, 120, 28)
-        self.intervalLineEdit.setPlaceholderText("建议 >= 20")
+        self.intervalLineEdit.setPlaceholderText("建议 ≥ 20")
         self.intervalLineEdit.setText("30")
         self.intervalLineEdit.setValidator(QtGui.QIntValidator(1, 86400, self))
-
-        row_y += 40
-        # 开始时间
-        self.startLabel = QtWidgets.QLabel('开始时间（HH:MM）：', self)
-        self.startLabel.move(20, row_y)
-        self.startTimeEdit = QtWidgets.QTimeEdit(self)
-        self.startTimeEdit.setGeometry(150, row_y - 4, 120, 28)
-        self.startTimeEdit.setDisplayFormat("HH:mm")
-        self.startTimeEdit.setTime(QtCore.QTime(9, 0))
-
-        row_y += 40
-        # 结束时间
-        self.endLabel = QtWidgets.QLabel('结束时间（HH:MM）：', self)
-        self.endLabel.move(20, row_y)
-        self.endTimeEdit = QtWidgets.QTimeEdit(self)
-        self.endTimeEdit.setGeometry(150, row_y - 4, 120, 28)
-        self.endTimeEdit.setDisplayFormat("HH:mm")
-        self.endTimeEdit.setTime(QtCore.QTime(17, 55))
-
-        row_y += 40
-        # 午休时间段
-        self.lunchLabel = QtWidgets.QLabel('午休（HH:MM~HH:MM）：', self)
-        self.lunchLabel.move(20, row_y)
-        self.lunchStartEdit = QtWidgets.QTimeEdit(self)
-        self.lunchStartEdit.setGeometry(170, row_y - 4, 90, 28)
-        self.lunchStartEdit.setDisplayFormat("HH:mm")
-        self.lunchStartEdit.setTime(QtCore.QTime(12, 0))
-        self.lunchSepLabel = QtWidgets.QLabel('~', self)
-        self.lunchSepLabel.setGeometry(265, row_y, 10, 24)
-        self.lunchEndEdit = QtWidgets.QTimeEdit(self)
-        self.lunchEndEdit.setGeometry(280, row_y - 4, 90, 28)
-        self.lunchEndEdit.setDisplayFormat("HH:mm")
-        self.lunchEndEdit.setTime(QtCore.QTime(13, 30))
-
-        row_y += 40
-        # 一周 7 天选择（全不选=当天有效）
-        self.dayChecks = []
-        day_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-        x_positions_row1 = [20, 90, 160, 230]
-        x_positions_row2 = [20, 90, 160]
-        for i in range(4):
-            cb = QtWidgets.QCheckBox(day_names[i], self)
-            cb.setGeometry(x_positions_row1[i], row_y, 60, 24)
-            cb.setChecked(True)
-            self.dayChecks.append(cb)
-        row_y += 30
-        for i in range(3):
-            cb = QtWidgets.QCheckBox(day_names[4 + i], self)
-            cb.setGeometry(x_positions_row2[i], row_y, 60, 24)
-            cb.setChecked(True if i == 0 else False)
-            self.dayChecks.append(cb)
-
-        row_y += 40
-        # 空闲触发
-        self.idleLabel = QtWidgets.QLabel('空闲触发（分钟）：', self)
-        self.idleLabel.move(20, row_y)
+        interval_tip = (
+            "<p><b>间隔时间（秒）</b></p>"
+            "<p>空闲达到阈值、进入模拟状态后，两次模拟键鼠操作之间的间隔。</p>"
+            "<p>实际间隔按设定值的 70%～130% 随机浮动；小于 3 秒时按 3 秒计算。<br>"
+            "例如设为 30 秒，实际约每 21～39 秒模拟一次。</p>"
+            "<p>仅在所选星期和运行时间内执行，午休期间暂停。</p>"
+        )
+        self.intervalHelp = self._create_help_icon(interval_tip)
+        self.idleLabel = QtWidgets.QLabel('空闲触发（分钟）', self)
         self.idleMinutesSpin = QtWidgets.QSpinBox(self)
-        self.idleMinutesSpin.setGeometry(150, row_y - 4, 120, 28)
         self.idleMinutesSpin.setRange(1, 240)
         self.idleMinutesSpin.setValue(5)
+        idle_tip = (
+            "<p><b>空闲触发（分钟）</b></p>"
+            "<p>连续多久没有键鼠操作后，程序才开始模拟操作。<br>"
+            "例如设为 5 分钟，连续空闲达到 5 分钟后才会触发。</p>"
+            "<p>等待空闲时约每 15 秒检查一次，并非刚到阈值就立即触发。<br>"
+            "检测到键鼠操作后暂停模拟，等待再次空闲。</p>"
+            "<p>需要先点击“开始”，且处于所选星期和运行时段内；午休期间暂停。</p>"
+        )
+        self.idleHelp = self._create_help_icon(idle_tip)
+        for row, (label, editor, help_icon) in enumerate((
+            (self.intervalLabel, self.intervalLineEdit, self.intervalHelp),
+            (self.idleLabel, self.idleMinutesSpin, self.idleHelp),
+        )):
+            editor.setMinimumHeight(38)
+            activity_grid.addWidget(label, row, 0)
+            activity_grid.addWidget(editor, row, 1)
+            activity_grid.addWidget(help_icon, row, 2)
+        activity_grid.setColumnStretch(1, 1)
+        activity_layout.addLayout(activity_grid)
+        layout.addWidget(activity_card)
+        layout.addStretch()
 
-        row_y += 40
+        actions = QtWidgets.QHBoxLayout()
+        actions.setSpacing(12)
         self.startButton = QtWidgets.QPushButton('开始', self)
-        self.startButton.setGeometry(20, row_y, 160, 32)
+        self.startButton.setObjectName("primaryButton")
         self.startButton.clicked.connect(self.start_moving)
-
         self.stopButton = QtWidgets.QPushButton('停止', self)
-        self.stopButton.setGeometry(200, row_y, 160, 32)
+        self.stopButton.setObjectName("stopButton")
         self.stopButton.clicked.connect(self.stop_moving)
         self.stopButton.setEnabled(False)
-
-        row_y += 40
+        self.saveButton = QtWidgets.QPushButton('保存设置', self)
+        self.saveButton.clicked.connect(self.save_settings)
+        for button in (self.startButton, self.stopButton, self.saveButton):
+            button.setMinimumHeight(42)
+            button.setCursor(QtCore.Qt.PointingHandCursor)
+            actions.addWidget(button, 1)
+        layout.addLayout(actions)
         self.statusLabel = QtWidgets.QLabel('状态：待机', self)
-        self.statusLabel.setGeometry(20, row_y, 480, 22)
+        self.statusLabel.setObjectName("statusLabel")
+        self.statusLabel.setWordWrap(True)
+        self.statusLabel.setMinimumHeight(46)
+        layout.addWidget(self.statusLabel)
 
         # 定时器
         self.timer = QtCore.QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self._on_timer)
 
+        # 先恢复所有设置控件，再初始化本次运行使用的参数。
+        self._load_settings()
+
         # 运行状态
         self.running = False
         self.active_mode = False
-        self.interval_seconds = 30
+        self.interval_seconds = int(self.intervalLineEdit.text())
         self.start_time = self.startTimeEdit.time()
         self.end_time = self.endTimeEdit.time()
         self.lunch_start = self.lunchStartEdit.time()
@@ -221,6 +289,178 @@ class MouseMover(QtWidgets.QWidget):
         self.tray_icon.activated.connect(self.tray_icon_activated)
 
         self._tray_tip_shown = False
+        self._restore_window_position()
+        QtWidgets.QApplication.instance().aboutToQuit.connect(self._save_window_position)
+
+    def _apply_theme(self):
+        """应用深色科技风主题，统一卡片、控件、交互状态和提示的视觉层次。"""
+        theme = """
+            QWidget { color: #DCE7F5; font-family: "Microsoft YaHei UI", "Segoe UI"; font-size: 13px; }
+            QWidget#keeperWindow { background: #0B1220; }
+            QLabel { background: transparent; }
+            QLabel#title { font-size: 25px; font-weight: bold; color: #F1F7FF; }
+            QLabel#badge { color: #55D5E7; font-size: 10px; letter-spacing: 1px; }
+            QFrame#card { background: #131F31; border: 1px solid #26364D; border-radius: 12px; }
+            QLabel#sectionTitle { color: #68D8EC; font-size: 14px; font-weight: bold; }
+            QLabel#muted { color: #8D9FB8; font-size: 12px; }
+            QLineEdit, QSpinBox, QTimeEdit { background: #0D1727; border: 1px solid #32465F; border-radius: 7px; padding: 5px 10px; color: #ECF5FF; selection-background-color: #177E9B; }
+            QLineEdit:focus, QSpinBox:focus, QTimeEdit:focus { border-color: #42C9E2; }
+            QLineEdit:disabled, QSpinBox:disabled, QTimeEdit:disabled { color: #71849D; border-color: #26364D; background: #111B2A; }
+            QSpinBox::up-button, QTimeEdit::up-button { width: 20px; border-left: 1px solid #32465F; background: #25364D; border-top-right-radius: 6px; }
+            QSpinBox::down-button, QTimeEdit::down-button { width: 20px; border-left: 1px solid #32465F; background: #25364D; border-bottom-right-radius: 6px; }
+            QSpinBox::up-arrow, QTimeEdit::up-arrow { image: url(UP_ICON); width: 10px; height: 10px; }
+            QSpinBox::down-arrow, QTimeEdit::down-arrow { image: url(DOWN_ICON); width: 10px; height: 10px; }
+            QCheckBox { spacing: 9px; background: transparent; }
+            QCheckBox::indicator { width: 17px; height: 17px; border: 1px solid #4C637D; border-radius: 4px; background: #0D1727; }
+            QCheckBox::indicator:checked { background: #36BCD6; border-color: #68E0EE; }
+            QCheckBox#dayCheck { padding: 9px 8px; border: 1px solid #32465F; border-radius: 6px; color: #96ABC3; spacing: 0px; }
+            QCheckBox#dayCheck::indicator { width: 0px; height: 0px; border: none; }
+            QCheckBox#dayCheck:checked { background: #163A4B; border-color: #338EA5; color: #A3EEFA; }
+            QCheckBox#dayCheck:disabled { color: #63768C; border-color: #26364D; }
+            QLabel#helpIcon { border: 1px solid #4B7C96; border-radius: 10px; color: #8CDFF0; background: #193447; font-weight: bold; }
+            QPushButton { background: #1C3047; color: #DCEBFA; border: 1px solid #36516D; border-radius: 8px; font-weight: bold; padding: 7px 14px; }
+            QPushButton:hover { background: #29445F; border-color: #6ABBD1; }
+            QPushButton:pressed { background: #15283D; }
+            QPushButton#primaryButton { background: #21B6D1; color: #071A27; border-color: #52D9E8; }
+            QPushButton#primaryButton:hover { background: #52D3E5; }
+            QPushButton#stopButton:enabled { background: #482B3A; border-color: #9B536A; color: #FFC2D2; }
+            QPushButton:disabled, QPushButton#primaryButton:disabled { background: #162235; color: #586D86; border-color: #26364D; }
+            QLabel#statusLabel { background: #101E2E; border: 1px solid #244157; border-radius: 8px; padding: 10px; color: #8FD9E7; font-size: 12px; }
+            QToolTip { background: #192B40; color: #E5F4FF; border: 1px solid #4F8FA5; padding: 10px; }
+            QMenu { background: #162337; border: 1px solid #36516D; }
+            QMenu::item { padding: 8px 22px; }
+            QMenu::item:selected { background: #255168; }
+        """
+        theme = theme.replace("UP_ICON", resource_path("assets/chevron-up.svg").replace("\\", "/"))
+        theme = theme.replace("DOWN_ICON", resource_path("assets/chevron-down.svg").replace("\\", "/"))
+        self.setStyleSheet(theme)
+
+    def _create_card(self):
+        """创建统一留白的设置卡片，供各功能区组织控件。"""
+        card = QtWidgets.QFrame(self)
+        card.setObjectName("card")
+        layout = QtWidgets.QVBoxLayout(card)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(12)
+        return card, layout
+
+    def _create_help_icon(self, text):
+        """创建布局中的圆圈问号，仅鼠标悬停在图标上时展示说明。"""
+        icon = QtWidgets.QLabel('?', self)
+        icon.setObjectName("helpIcon")
+        icon.setFixedSize(20, 20)
+        icon.setAlignment(QtCore.Qt.AlignCenter)
+        icon.setCursor(QtCore.Qt.WhatsThisCursor)
+        icon.setToolTip(text)
+        return icon
+
+    def _startup_command(self):
+        """生成登录启动命令，兼容打包后的 EXE 和直接运行的源码，并正确引用带空格的路径。"""
+        if getattr(sys, "frozen", False):
+            return '"' + sys.executable + '"'
+        python_path = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if not os.path.isfile(python_path):
+            python_path = sys.executable
+        return '"' + python_path + '" "' + os.path.abspath(__file__) + '"'
+
+    def _login_startup_enabled(self):
+        """读取当前用户实际的登录启动项，避免复制 INI 后误显示为已启用。"""
+        if not IS_WINDOWS:
+            return False
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
+                command, _ = winreg.QueryValueEx(key, "ComputerKeeper")
+                return command == self._startup_command()
+        except FileNotFoundError:
+            return False
+
+    def _save_login_startup(self):
+        """根据复选框添加或删除当前用户的登录启动项，无需管理员权限，仅在保存时执行。"""
+        if not IS_WINDOWS:
+            return
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE) as key:
+            if self.startupCheck.isChecked():
+                winreg.SetValueEx(key, "ComputerKeeper", 0, winreg.REG_SZ, self._startup_command())
+            else:
+                try:
+                    winreg.DeleteValue(key, "ComputerKeeper")
+                except FileNotFoundError:
+                    pass
+
+    def _restore_window_position(self):
+        """恢复上次正常退出或隐藏时的窗口位置；首次打开时在当前屏幕居中显示。"""
+        settings = QtCore.QSettings("ComputerKeeper", "Window")
+        geometry = settings.value("geometry", QtCore.QByteArray(), type=QtCore.QByteArray)
+        if geometry and self.restoreGeometry(geometry):
+            return
+        frame = self.frameGeometry()
+        frame.moveCenter(self.screen().availableGeometry().center())
+        self.move(frame.topLeft())
+
+    def _save_window_position(self):
+        """单独记录窗口位置，不创建或修改由保存按钮管理的时间 INI 文件。"""
+        settings = QtCore.QSettings("ComputerKeeper", "Window")
+        settings.setValue("geometry", self.saveGeometry())
+        settings.sync()
+
+    def _load_settings(self):
+        """读取程序同目录的全部界面设置；缺失或无效的项保留默认值，不创建文件。"""
+        self.startupCheck.setChecked(self._login_startup_enabled())
+        if not os.path.isfile(self.settings_path):
+            return
+        settings = QtCore.QSettings(self.settings_path, QtCore.QSettings.IniFormat)
+        settings.setFallbacksEnabled(False)
+        for key, editor in self._time_editors().items():
+            saved_time = QtCore.QTime.fromString(settings.value("time/" + key, "", type=str), "HH:mm")
+            if saved_time.isValid():
+                editor.setTime(saved_time)
+        interval = settings.value("activity/interval_seconds", "30", type=str)
+        if interval.isdecimal() and 1 <= int(interval) <= 86400:
+            self.intervalLineEdit.setText(str(int(interval)))
+        idle_minutes = settings.value("activity/idle_minutes", "5", type=str)
+        if idle_minutes.isdecimal() and 1 <= int(idle_minutes) <= 240:
+            self.idleMinutesSpin.setValue(int(idle_minutes))
+        for day, checkbox in enumerate(self.dayChecks, start=1):
+            checkbox.setChecked(settings.value("weekdays/day_" + str(day), checkbox.isChecked(), type=bool))
+
+    def _time_editors(self):
+        """返回配置键与时间控件的对应关系，统一读取和保存的字段。"""
+        return {
+            "start_time": self.startTimeEdit,
+            "end_time": self.endTimeEdit,
+            "lunch_start": self.lunchStartEdit,
+            "lunch_end": self.lunchEndEdit,
+        }
+
+    def save_settings(self):
+        """保存全部界面设置到程序同目录的 ComputerKeeper.ini，并更新当前用户的登录启动项。
+
+        仅由“保存”按钮触发，不改变本次运行状态。立即同步到磁盘，写入失败时
+        提示用户检查目录写入权限；启动、开始、停止和退出均不会自动保存配置。
+        """
+        if not self.intervalLineEdit.hasAcceptableInput():
+            QtWidgets.QMessageBox.warning(self, '保存失败', '间隔时间请输入 1 到 86400 之间的整数。')
+            return
+        settings = QtCore.QSettings(self.settings_path, QtCore.QSettings.IniFormat)
+        settings.setFallbacksEnabled(False)
+        for key, editor in self._time_editors().items():
+            settings.setValue("time/" + key, editor.time().toString("HH:mm"))
+        settings.setValue("activity/interval_seconds", int(self.intervalLineEdit.text()))
+        settings.setValue("activity/idle_minutes", self.idleMinutesSpin.value())
+        settings.setValue("startup/enabled", self.startupCheck.isChecked())
+        for day, checkbox in enumerate(self.dayChecks, start=1):
+            settings.setValue("weekdays/day_" + str(day), checkbox.isChecked())
+        settings.sync()
+        if settings.status() != QtCore.QSettings.NoError:
+            QtWidgets.QMessageBox.warning(self, '保存失败', '无法写入配置文件，请检查程序目录的写入权限。\n' + self.settings_path)
+            return
+        try:
+            self._save_login_startup()
+        except OSError as error:
+            QtWidgets.QMessageBox.warning(self, '登录启动设置失败', '配置文件已保存，但无法更新登录启动项：\n' + str(error))
+            return
+        startup_message = '已启用开机自启。' if self.startupCheck.isChecked() else '已关闭开机自启。'
+        QtWidgets.QMessageBox.information(self, '保存成功', '设置已保存，点击“开始”使用当前设置，下次启动自动恢复。\n' + startup_message + '\n' + self.settings_path)
 
     # ------------------ UI 控制 ------------------
     def start_moving(self):
@@ -533,6 +773,8 @@ class MouseMover(QtWidgets.QWidget):
         event.accept()
 
     def hideEvent(self, event):
+        """隐藏到托盘时记录窗口位置，保持再次显示和下次启动的位置一致。"""
+        self._save_window_position()
         self.tray_icon.setVisible(True)
         event.accept()
 
@@ -554,6 +796,7 @@ class MouseMover(QtWidgets.QWidget):
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
+    app.setStyle("Fusion")
     # 设置应用图标（任务栏等处）
     app.setWindowIcon(QtGui.QIcon(resource_path("icon.png")))
     window = MouseMover()

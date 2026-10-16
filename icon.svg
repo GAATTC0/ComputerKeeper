@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="24" x2="448" y2="488" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#173F73"/>
+      <stop offset="1" stop-color="#091C38"/>
+    </linearGradient>
+    <linearGradient id="frame" x1="120" y1="120" x2="392" y2="368" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F0FBFF"/>
+      <stop offset="1" stop-color="#8BDDED"/>
+    </linearGradient>
+    <linearGradient id="power" x1="210" y1="176" x2="302" y2="292" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A2FFD4"/>
+      <stop offset="1" stop-color="#2DE1AA"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#tile)"/>
+  <rect x="17" y="17" width="478" height="478" rx="111" stroke="#70B7E8" stroke-opacity=".22" stroke-width="2"/>
+  <rect x="100" y="120" width="312" height="232" rx="36" fill="#102C4E" stroke="url(#frame)" stroke-width="24"/>
+  <path d="M256 354V396M200 400H312" stroke="url(#frame)" stroke-width="24" stroke-linecap="round"/>
+  <path d="M216 194A60 60 0 1 0 296 194" stroke="url(#power)" stroke-width="24" stroke-linecap="round"/>
+  <path d="M256 176V232" stroke="url(#power)" stroke-width="24" stroke-linecap="round"/>
+</svg>
