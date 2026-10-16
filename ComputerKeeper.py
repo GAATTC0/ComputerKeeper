@@ -326,6 +326,12 @@ class MouseMover(QtWidgets.QWidget):
             QPushButton#stopButton:enabled { background: #482B3A; border-color: #9B536A; color: #FFC2D2; }
             QPushButton:disabled, QPushButton#primaryButton:disabled { background: #162235; color: #586D86; border-color: #26364D; }
             QLabel#statusLabel { background: #101E2E; border: 1px solid #244157; border-radius: 8px; padding: 10px; color: #8FD9E7; font-size: 12px; }
+            QMessageBox { background-color: #131F31; }
+            QMessageBox QLabel { color: #F1F7FF; background: transparent; }
+            QMessageBox QDialogButtonBox { background: transparent; }
+            QMessageBox QPushButton { background: #21B6D1; color: #071A27; border: 1px solid #52D9E8; min-width: 72px; min-height: 26px; }
+            QMessageBox QPushButton:hover { background: #52D3E5; }
+            QMessageBox QPushButton:pressed { background: #1599B3; }
             QToolTip { background: #192B40; color: #E5F4FF; border: 1px solid #4F8FA5; padding: 10px; }
             QMenu { background: #162337; border: 1px solid #36516D; }
             QMenu::item { padding: 8px 22px; }
